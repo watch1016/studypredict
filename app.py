@@ -7,18 +7,57 @@ from sklearn.preprocessing import OneHotEncoder
 from sklearn.pipeline import Pipeline
 
 
-@st.cache_data
 def load_data(csv_path: str = "StudentsPerformance.csv") -> pd.DataFrame:
     """
     CSV 파일을 읽어오는 함수.
-    Streamlit의 cache_data로 한 번 읽어두면,
-    매번 다시 읽지 않아도 돼요.
+    에러가 나면 Streamlit 화면에 메시지를 보여주고 앱을 멈춥니다.
     """
-    df = pd.read_csv(csv_path)
+    try:
+        df = pd.read_csv(csv_path)
+    except FileNotFoundError:
+        st.error(
+            f"`{csv_path}` 파일을 찾을 수 없습니다.\n\n"
+            f"- 이 앱이 있는 폴더(리포지토리 루트)에 **{csv_path}** 파일을 넣어주세요.\n"
+            f"- GitHub에 푸시한 뒤 Streamlit Cloud를 다시 배포해 주세요."
+        )
+        st.stop()
+    except Exception as e:
+        st.error("CSV 파일을 읽는 중 예기치 못한 오류가 발생했습니다.")
+        st.exception(e)
+        st.stop()
+
     return df
 
 
-@st.cache_resource
+def check_columns(df: pd.DataFrame):
+    """
+    필요한 컬럼이 다 있는지 확인하고,
+    없으면 화면에 알려주고 앱을 멈춥니다.
+    """
+    required_cols = [
+        "gender",
+        "race/ethnicity",
+        "parental level of education",
+        "lunch",
+        "test preparation course",
+        "math score",
+        "reading score",
+        "writing score",
+    ]
+
+    missing = [c for c in required_cols if c not in df.columns]
+
+    if missing:
+        st.error(
+            "데이터에 필요한 컬럼이 부족합니다.\n\n"
+            f"**필요한 컬럼:** {required_cols}\n\n"
+            f"**누락된 컬럼:** {missing}"
+        )
+        st.write("현재 CSV의 컬럼 목록은 다음과 같습니다:")
+        st.write(list(df.columns))
+        st.stop()
+
+
 def train_model(df: pd.DataFrame, target_col: str):
     """
     랜덤 포레스트 회귀모델을 학습해서 Pipeline 형태로 반환.
@@ -61,7 +100,12 @@ def train_model(df: pd.DataFrame, target_col: str):
         ]
     )
 
-    pipe.fit(X, y)
+    try:
+        pipe.fit(X, y)
+    except Exception as e:
+        st.error("모델을 학습하는 중 오류가 발생했습니다.")
+        st.exception(e)
+        st.stop()
 
     return pipe
 
@@ -83,18 +127,12 @@ def main():
     )
 
     # 1. 데이터 로드
-    try:
-        df = load_data()
-    except FileNotFoundError:
-        st.error(
-            """
-            `StudentsPerformance.csv` 파일을 찾을 수 없습니다.  
-            이 앱이 있는 폴더에 **StudentsPerformance.csv** 파일을 넣어주세요.
-            """
-        )
-        st.stop()
+    df = load_data()
 
-    # 2. 예측할 과목 선택
+    # 2. 컬럼 체크
+    check_columns(df)
+
+    # 3. 예측할 과목 선택
     st.sidebar.header("⚙️ 설정")
     target_col = st.sidebar.selectbox(
         "예측할 과목을 선택하세요",
@@ -107,10 +145,7 @@ def main():
     )
 
     st.sidebar.markdown("---")
-    st.sidebar.caption("모델: RandomForestRegressor (간단 데모용 설정)")
-
-    # 3. 학습된 모델 얻기 (캐시 사용)
-    model = train_model(df, target_col)
+    st.sidebar.caption("모델: RandomForestRegressor (데모용 설정)")
 
     # 4. 입력 UI 만들기
     st.subheader("1️⃣ 학생 정보 입력")
@@ -153,10 +188,17 @@ def main():
             ]
         )
 
-        pred = model.predict(input_df)[0]
-        st.success(
-            f"예측된 **{target_col}** 는 약 **{pred:.2f} 점** 입니다."
-        )
+        # 버튼을 눌렀을 때마다 간단히 모델을 한 번 학습 (데모이므로 OK)
+        model = train_model(df, target_col)
+
+        try:
+            pred = model.predict(input_df)[0]
+        except Exception as e:
+            st.error("예측을 수행하는 중 오류가 발생했습니다.")
+            st.exception(e)
+            st.stop()
+
+        st.success(f"예측된 **{target_col}** 는 약 **{pred:.2f} 점** 입니다.")
 
         with st.expander("⚗️ 사용된 입력값 보기"):
             st.write(input_df)
